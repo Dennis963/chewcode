@@ -1,0 +1,13 @@
+[Unit]
+Description=ChewCode bridge
+After=network.target
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/chewcode/bridge.env
+ExecStart=/usr/lib/chewcode-bridge/start-bridge.sh
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

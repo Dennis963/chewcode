@@ -1,0 +1,13 @@
+[Unit]
+Description=ChewCode OpenCode runtime
+After=network.target
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/chewcode/chewcode.env
+ExecStart=%h/.config/chewcode/start-chewcode-opencode.sh
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

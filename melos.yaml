@@ -1,0 +1,9 @@
+name: chewcode_app
+
+packages:
+  - apps/**
+  - packages/**
+
+scripts:
+  analyze: melos exec -- "flutter analyze"
+  test: melos exec --fail-fast -- "flutter test"

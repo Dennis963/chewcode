@@ -1,0 +1,19 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+  configure)
+    if ! command -v node >/dev/null 2>&1; then
+      echo "chewcode-bridge: Node.js >= 22 is required but node was not found in PATH." >&2
+    fi
+    echo "chewcode-bridge installed." >&2
+    echo "Next steps:" >&2
+    echo "  1. Create ~/.config/chewcode if needed" >&2
+    echo "  2. Copy /usr/share/doc/chewcode-bridge/examples/bridge.env.example to ~/.config/chewcode/bridge.env" >&2
+    echo "  3. Update BRIDGE_BEARER_TOKEN and any path overrides" >&2
+    echo "  4. Run: systemctl --user daemon-reload" >&2
+    echo "  5. Run: systemctl --user enable --now chewcode-bridge.service" >&2
+    ;;
+esac
+
+exit 0

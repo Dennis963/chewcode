@@ -1,0 +1,15 @@
+#!/usr/bin/make -f
+
+export DH_VERBOSE = 1
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	npm ci
+	npm run build
+	npm ci --omit=dev
+
+override_dh_auto_clean:
+	if [ -d node_modules ]; then rm -rf node_modules; fi
+	rm -rf dist

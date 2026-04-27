@@ -1,0 +1,6 @@
+dist usr/lib/chewcode-bridge/
+node_modules usr/lib/chewcode-bridge/
+package.json usr/lib/chewcode-bridge/
+packaging/start-bridge.sh usr/lib/chewcode-bridge/
+packaging/chewcode-bridge.service usr/lib/systemd/user/
+packaging/bridge.env.example usr/share/doc/chewcode-bridge/examples/

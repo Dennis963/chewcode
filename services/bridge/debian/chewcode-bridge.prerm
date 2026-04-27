@@ -1,0 +1,10 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+  remove|deconfigure|upgrade|failed-upgrade)
+    echo "chewcode-bridge: package removal does not delete ~/.config/chewcode/bridge.env or user state." >&2
+    ;;
+esac
+
+exit 0

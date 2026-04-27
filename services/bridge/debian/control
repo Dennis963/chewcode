@@ -1,0 +1,14 @@
+Source: chewcode-bridge
+Section: utils
+Priority: optional
+Maintainer: ChewCode Maintainers <chewcode-maintainers@users.noreply.github.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: chewcode-bridge
+Architecture: all
+Depends: ${misc:Depends}
+Description: ChewCode bridge user service
+ Lightweight bridge for ChewCode mobile clients packaged as a systemd user
+ service. Node.js 22+ and the opencode CLI remain external prerequisites.

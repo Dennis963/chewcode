@@ -1,0 +1,28 @@
+ChewCode Bridge Debian Package
+==============================
+
+This package installs the ChewCode bridge as a systemd user service.
+
+Prerequisites
+-------------
+- Node.js 22 or newer available in PATH, or set CHEWCODE_NODE_BIN in the env file.
+- The `opencode` CLI available in PATH, or set CHEWCODE_OPENCODE_BIN in the env file.
+
+Setup
+-----
+1. Copy the example file:
+
+   cp /usr/share/doc/chewcode-bridge/examples/bridge.env.example ~/.config/chewcode/bridge.env
+
+2. Edit `~/.config/chewcode/bridge.env` and set at minimum:
+   - `BRIDGE_BEARER_TOKEN`
+   - `OPENCODE_BASE_URL` (or `CHEWCODE_OPENCODE_HOST`/`CHEWCODE_OPENCODE_PORT`)
+
+3. Enable the user service:
+
+   systemctl --user daemon-reload
+   systemctl --user enable --now chewcode-bridge.service
+
+Logs
+----
+Use `journalctl --user -u chewcode-bridge -f` to inspect service logs.

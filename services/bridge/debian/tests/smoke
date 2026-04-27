@@ -1,0 +1,6 @@
+#!/bin/sh
+set -e
+
+test -f /usr/lib/chewcode-bridge/start-bridge.sh
+test -f /usr/lib/systemd/user/chewcode-bridge.service
+test -f /usr/share/doc/chewcode-bridge/examples/bridge.env.example
