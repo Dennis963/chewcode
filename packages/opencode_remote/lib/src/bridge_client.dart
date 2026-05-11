@@ -146,9 +146,9 @@ class OpenCodeBridgeClient {
       if (roots == true) 'roots': 'true',
       if (limit != null && limit > 0) 'limit': '$limit',
     };
-    final uri = Uri.parse(route).replace(
-      queryParameters: parameters.isEmpty ? null : parameters,
-    );
+    final uri = Uri.parse(
+      route,
+    ).replace(queryParameters: parameters.isEmpty ? null : parameters);
     final json = await _getJson(uri.toString());
     final items = json['items'] as List<dynamic>? ?? const [];
     return items
@@ -189,11 +189,19 @@ class OpenCodeBridgeClient {
   Future<SessionView> fetchSessionView(
     String sessionId, {
     String? projectId,
+    int? messageLimit,
   }) async {
     final route = projectId == null
         ? '$_baseUrl/v1/sessions/$sessionId/view'
         : '$_baseUrl/v1/projects/$projectId/sessions/$sessionId/view';
-    final json = await _getJson(route);
+    final parameters = <String, String>{
+      if (messageLimit != null && messageLimit > 0)
+        'messageLimit': '$messageLimit',
+    };
+    final uri = Uri.parse(
+      route,
+    ).replace(queryParameters: parameters.isEmpty ? null : parameters);
+    final json = await _getJson(uri.toString());
     return SessionView.fromJson(json);
   }
 

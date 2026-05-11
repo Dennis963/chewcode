@@ -111,6 +111,7 @@ export function mapSessionView(
   messagesPayload: unknown,
   todosPayload: unknown,
   providersPayload: unknown,
+  options: { messageLimit?: number | null } = {},
 ): SessionView {
   const session = mapSessionSummary(sessionPayload, new Map(), 0) ?? {
     id: "unknown-session",
@@ -125,13 +126,26 @@ export function mapSessionView(
 
   return {
     session,
-    messages: extractItems(messagesPayload)
+    messages: takeLatestItems(extractItems(messagesPayload), options.messageLimit)
       .map((item, index) => mapConversationMessage(item, index, providersPayload))
       .filter((item): item is ConversationMessage => item !== null),
     todos: extractItems(todosPayload)
       .map((item, index) => mapTodo(item, index))
       .filter((item): item is TodoItem => item !== null),
   }
+}
+
+function takeLatestItems(items: unknown[], limit?: number | null): unknown[] {
+  if (typeof limit !== "number" || !Number.isFinite(limit) || limit <= 0) {
+    return items
+  }
+
+  const normalizedLimit = Math.floor(limit)
+  if (items.length <= normalizedLimit) {
+    return items
+  }
+
+  return items.slice(items.length - normalizedLimit)
 }
 
 export function mapSessionContextStatus(

@@ -53,6 +53,41 @@ void main() {
     expect(sessions.single.archivedAt, '2026-04-25T00:00:00Z');
   });
 
+  test('builds project session view request with message limit', () async {
+    final client = OpenCodeBridgeClient(
+      baseUrl: 'http://bridge.test',
+      httpClient: MockClient((request) async {
+        expect(request.url.path, '/v1/projects/p1/sessions/s1/view');
+        expect(request.url.queryParameters['messageLimit'], '80');
+        return http.Response(
+          jsonEncode({
+            'session': {'id': 's1', 'title': 'Demo'},
+            'messages': [
+              {
+                'id': 'm1',
+                'role': 'assistant',
+                'parts': [
+                  {'type': 'text', 'text': 'hello'},
+                ],
+              },
+            ],
+            'todos': [],
+          }),
+          200,
+        );
+      }),
+    );
+
+    final view = await client.fetchSessionView(
+      's1',
+      projectId: 'p1',
+      messageLimit: 80,
+    );
+
+    expect(view.session.id, 's1');
+    expect(view.messages, hasLength(1));
+  });
+
   test('adds bearer token to POST requests', () async {
     final client = OpenCodeBridgeClient(
       baseUrl: 'http://bridge.test',

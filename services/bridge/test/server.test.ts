@@ -428,6 +428,44 @@ describe("GET /v1/sessions/:id/view", () => {
     })
     await server.close()
   })
+
+  it("limits mapped messages to the latest requested window", async () => {
+    global.fetch = vi.fn(async (input: URL | RequestInfo) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
+
+      if (url.endsWith("/session/s1")) {
+        return Response.json({ id: "s1", title: "Session 1", directory: "/repo" })
+      }
+      if (url.endsWith("/session/s1/message")) {
+        return Response.json({
+          items: [
+            { info: { id: "m1", role: "user" }, parts: [{ type: "text", text: "old" }] },
+            { info: { id: "m2", role: "assistant" }, parts: [{ type: "text", text: "middle" }] },
+            { info: { id: "m3", role: "assistant" }, parts: [{ type: "text", text: "latest" }] },
+          ],
+        })
+      }
+      if (url.endsWith("/session/s1/todo")) {
+        return Response.json({ items: [] })
+      }
+      if (url.endsWith("/provider")) {
+        return Response.json({ all: [] })
+      }
+
+      throw new Error(`Unexpected fetch to ${url}`)
+    }) as typeof fetch
+
+    const server = buildServer(serverOptions)
+    const response = await server.inject({
+      method: "GET",
+      url: "/v1/sessions/s1/view?messageLimit=2",
+      headers: { authorization: "Bearer test-token" },
+    })
+
+    expect(response.statusCode).toBe(200)
+    expect(response.json().messages.map((message: { id: string }) => message.id)).toEqual(["m2", "m3"])
+    await server.close()
+  })
 })
 
 describe("request error handling", () => {

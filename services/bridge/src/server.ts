@@ -23,6 +23,10 @@ type SessionListQuery = {
   limit?: string
 }
 
+type SessionViewQuery = {
+  messageLimit?: string
+}
+
 export function buildServer(options: ServerOptions) {
   const app = Fastify({ logger: true })
   const upstream = new OpenCodeUpstreamClient({
@@ -187,15 +191,16 @@ export function buildServer(options: ServerOptions) {
     return { ok: true, sessionId: request.params.id }
   })
 
-  app.get<{ Params: { projectId: string; id: string } }>("/v1/projects/:projectId/sessions/:id/view", async (request) => {
+  app.get<{ Params: { projectId: string; id: string }; Querystring: SessionViewQuery }>("/v1/projects/:projectId/sessions/:id/view", async (request) => {
     const projectUpstream = await resolveProjectUpstream(projectRegistry, runtimeSupervisor, request.params.projectId)
+    const sessionViewOptions = readSessionViewOptions(request.query)
     const [session, messages, todos, providers] = await Promise.all([
       projectUpstream.getSession(request.params.id),
       projectUpstream.getSessionMessages(request.params.id),
       projectUpstream.getSessionTodos(request.params.id),
       projectUpstream.getProviders().catch(() => ({ all: [] })),
     ])
-    return mapSessionView(session, messages, todos, providers)
+    return mapSessionView(session, messages, todos, providers, sessionViewOptions)
   })
 
   app.get<{ Params: { projectId: string; id: string } }>("/v1/projects/:projectId/sessions/:id/context-status", async (request) => {
@@ -536,8 +541,9 @@ export function buildServer(options: ServerOptions) {
     return { ok: true, sessionId: request.params.id }
   })
 
-  app.get<{ Params: { id: string } }>("/v1/sessions/:id/view", async (request) => {
+  app.get<{ Params: { id: string }; Querystring: SessionViewQuery }>("/v1/sessions/:id/view", async (request) => {
     const { id } = request.params
+    const sessionViewOptions = readSessionViewOptions(request.query)
     const [session, messages, todos, providers] = await Promise.all([
       upstream.getSession(id),
       upstream.getSessionMessages(id),
@@ -545,7 +551,7 @@ export function buildServer(options: ServerOptions) {
       upstream.getProviders().catch(() => ({ all: [] })),
     ])
 
-    return mapSessionView(session, messages, todos, providers)
+    return mapSessionView(session, messages, todos, providers, sessionViewOptions)
   })
 
   app.get<{ Params: { id: string } }>("/v1/sessions/:id/context-status", async (request) => {
@@ -839,6 +845,12 @@ function readSessionListOptions(query: SessionListQuery) {
     directory: query.directory?.trim() || undefined,
     roots: query.roots === "true",
     limit: parsePositiveInt(query.limit),
+  }
+}
+
+function readSessionViewOptions(query: SessionViewQuery) {
+  return {
+    messageLimit: parsePositiveInt(query.messageLimit),
   }
 }
 

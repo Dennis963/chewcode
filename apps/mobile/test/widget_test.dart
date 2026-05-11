@@ -101,6 +101,9 @@ void main() {
     expect(client.fetchSessionsRequests.single.directory, '/repo/demo');
     expect(client.fetchSessionsRequests.single.roots, isTrue);
     expect(client.fetchSessionsRequests.single.limit, 5);
+    expect(client.fetchSessionViewRequests, hasLength(1));
+    expect(client.fetchSessionViewRequests.single.projectId, 'p1');
+    expect(client.fetchSessionViewRequests.single.messageLimit, 80);
     expect(find.text('running'), findsWidgets);
   });
 
@@ -680,17 +683,17 @@ void main() {
       expect(client.fetchContextStatusCalls, 2);
 
       await tester.pump(const Duration(milliseconds: 1000));
-      expect(client.fetchContextStatusCalls, greaterThanOrEqualTo(4));
+      expect(client.fetchContextStatusCalls, greaterThanOrEqualTo(3));
 
       client.updateContextStatusForSession('s1', idleStatus);
       final callsBeforeIdle = client.fetchContextStatusCalls;
 
-      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pump(const Duration(milliseconds: 1000));
       final callsAfterIdle = client.fetchContextStatusCalls;
       expect(callsAfterIdle, greaterThan(callsBeforeIdle));
 
-      await tester.pump(const Duration(milliseconds: 900));
-      expect(client.fetchContextStatusCalls, callsAfterIdle);
+      await tester.pump(const Duration(milliseconds: 1000));
+      expect(client.fetchContextStatusCalls, greaterThan(callsAfterIdle));
     },
   );
 
@@ -1180,6 +1183,175 @@ void main() {
 
       expect(find.text('1200/8000 · 15%'), findsNothing);
       expect(find.text('2400/10000 · 24%'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'prompt polling refreshes assistant replies even when message events are missed',
+    (tester) async {
+      _setSurfaceSize(tester, const Size(430, 932));
+      var now = DateTime.utc(2026, 4, 15);
+
+      const session = SessionSummary(
+        id: 's1',
+        title: 'Missed event session',
+        directory: '/repo/demo',
+        createdAt: null,
+        updatedAt: null,
+        status: 'running',
+        parentId: null,
+      );
+
+      final client = _FakeBridgeClient(
+        sessions: const [session],
+        sessionView: SessionView(
+          session: session,
+          messages: [_conversationMessage(id: 'm1', text: 'Ready')],
+          todos: const [],
+        ),
+        contextStatus: _buildContextStatus(session.id, session.directory!),
+        attention: const AttentionState(questions: [], permissions: []),
+      );
+      addTearDown(client.disposeEvents);
+
+      await tester.pumpWidget(
+        ChewCodeApp(
+          home: WorkspaceScreen(
+            client: client,
+            initialBridgeUrl: 'http://test-bridge',
+            loadPreferences: false,
+            now: () => now,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('composer-input')),
+        'Explain this bug',
+      );
+      await tester.tap(
+        find.byKey(const ValueKey<String>('composer-action-button')),
+      );
+      await tester.pump();
+
+      client.updateViewForSession(
+        's1',
+        SessionView(
+          session: session,
+          messages: [
+            _conversationMessage(
+              id: 'm2',
+              role: 'user',
+              text: 'Explain this bug',
+            ),
+          ],
+          todos: const [],
+        ),
+      );
+
+      now = now.add(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('Assistant reply without event'), findsNothing);
+
+      client.updateViewForSession(
+        's1',
+        SessionView(
+          session: session,
+          messages: [
+            _conversationMessage(
+              id: 'm2',
+              role: 'user',
+              text: 'Explain this bug',
+            ),
+            _conversationMessage(
+              id: 'm3',
+              text: 'Assistant reply without event',
+            ),
+          ],
+          todos: const [],
+        ),
+      );
+
+      now = now.add(const Duration(milliseconds: 2600));
+      await tester.pump(const Duration(milliseconds: 2600));
+
+      expect(find.text('Assistant reply without event'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'selected message events keep polling when another client starts a turn',
+    (tester) async {
+      _setSurfaceSize(tester, const Size(430, 932));
+      var now = DateTime.utc(2026, 4, 15);
+
+      const session = SessionSummary(
+        id: 's1',
+        title: 'Shared phone session',
+        directory: '/repo/demo',
+        createdAt: null,
+        updatedAt: null,
+        status: 'running',
+        parentId: null,
+      );
+
+      final client = _FakeBridgeClient(
+        sessions: const [session],
+        sessionView: SessionView(
+          session: session,
+          messages: [
+            _conversationMessage(id: 'm1', text: 'Before remote turn'),
+          ],
+          todos: const [],
+        ),
+        contextStatus: _buildContextStatus(session.id, session.directory!),
+        attention: const AttentionState(questions: [], permissions: []),
+      );
+      addTearDown(client.disposeEvents);
+
+      await tester.pumpWidget(
+        ChewCodeApp(
+          home: WorkspaceScreen(
+            client: client,
+            initialBridgeUrl: 'http://test-bridge',
+            loadPreferences: false,
+            now: () => now,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      client.emitEvent(
+        const BridgeEvent(
+          type: 'message.updated',
+          sessionId: 's1',
+          timestamp: '2026-04-15T00:00:03Z',
+          rawType: null,
+          payload: {},
+        ),
+      );
+
+      now = now.add(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('Remote assistant reply'), findsNothing);
+
+      client.updateViewForSession(
+        's1',
+        SessionView(
+          session: session,
+          messages: [
+            _conversationMessage(id: 'm1', text: 'Before remote turn'),
+            _conversationMessage(id: 'm2', text: 'Remote assistant reply'),
+          ],
+          todos: const [],
+        ),
+      );
+
+      now = now.add(const Duration(milliseconds: 2600));
+      await tester.pump(const Duration(milliseconds: 2600));
+
+      expect(find.text('Remote assistant reply'), findsOneWidget);
     },
   );
 
@@ -1762,13 +1934,13 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(client.fetchSessionsRequests.first.projectId, 'p1');
-      expect(client.fetchSessionsRequests.first.directory, '/workspaces/demo/app');
+      expect(
+        client.fetchSessionsRequests.first.directory,
+        '/workspaces/demo/app',
+      );
       expect(client.fetchSessionsRequests.first.roots, isTrue);
       expect(client.fetchSessionsRequests.first.limit, 5);
-      expect(
-        client.fetchSessionsRequests.last.limit,
-        greaterThanOrEqualTo(10),
-      );
+      expect(client.fetchSessionsRequests.last.limit, greaterThanOrEqualTo(10));
 
       await tester.tap(find.byIcon(Icons.menu_rounded).first);
       await tester.pumpAndSettle();
@@ -2639,7 +2811,6 @@ void main() {
     expect(client.fetchSessionViewCalls, 1);
 
     await tester.pump(const Duration(milliseconds: 300));
-    await tester.pumpAndSettle();
 
     expect(client.fetchSessionsCalls, 1);
     expect(client.fetchSessionViewCalls, 2);
@@ -3227,6 +3398,18 @@ class _FetchSessionsRequest {
   final int? limit;
 }
 
+class _FetchSessionViewRequest {
+  const _FetchSessionViewRequest({
+    required this.sessionId,
+    required this.projectId,
+    required this.messageLimit,
+  });
+
+  final String sessionId;
+  final String? projectId;
+  final int? messageLimit;
+}
+
 bool _pathFallsWithinRoot(String path, String root) {
   final normalizedPath = path.trim();
   final normalizedRoot = root.trim();
@@ -3289,6 +3472,7 @@ class _FakeBridgeClient extends OpenCodeBridgeClient {
   int compactSessionCalls = 0;
   final List<String> sentPrompts = [];
   final List<_FetchSessionsRequest> fetchSessionsRequests = [];
+  final List<_FetchSessionViewRequest> fetchSessionViewRequests = [];
 
   void emitEvent(BridgeEvent event) {
     _events.add(event);
@@ -3452,8 +3636,8 @@ class _FakeBridgeClient extends OpenCodeBridgeClient {
       ),
     );
 
-    Iterable<SessionSummary> scopedSessions = projectId != null &&
-            sessionsByProject.containsKey(projectId)
+    Iterable<SessionSummary> scopedSessions =
+        projectId != null && sessionsByProject.containsKey(projectId)
         ? sessionsByProject[projectId]!
         : sessions;
 
@@ -3481,8 +3665,16 @@ class _FakeBridgeClient extends OpenCodeBridgeClient {
   Future<SessionView> fetchSessionView(
     String sessionId, {
     String? projectId,
+    int? messageLimit,
   }) async {
     fetchSessionViewCalls += 1;
+    fetchSessionViewRequests.add(
+      _FetchSessionViewRequest(
+        sessionId: sessionId,
+        projectId: projectId,
+        messageLimit: messageLimit,
+      ),
+    );
     final scopedKey = _scopedSessionKey(sessionId, projectId: projectId);
     final delayed =
         _delayedSessionViews[scopedKey] ?? _delayedSessionViews[sessionId];

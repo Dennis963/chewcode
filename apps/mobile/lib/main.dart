@@ -26,6 +26,10 @@ const _sessionDrawerWidth = 340.0;
 const _mobileDrawerMaxWidth = 420.0;
 const _maxMobileContentWidth = 760.0;
 const _sessionPageSize = 5;
+const _sessionMessageTailLimit = 80;
+const _liveSessionRefreshWindow = Duration(seconds: 90);
+const _liveContextStatusRefreshInterval = Duration(milliseconds: 900);
+const _liveSessionViewRefreshInterval = Duration(milliseconds: 2400);
 const _spaceXxs = 2.0;
 const _spaceXs = 4.0;
 const _spaceSm = 8.0;
@@ -260,11 +264,13 @@ class WorkspaceScreen extends StatefulWidget {
     this.client,
     this.initialBridgeUrl,
     this.loadPreferences = true,
+    this.now,
   });
 
   final OpenCodeBridgeClient? client;
   final String? initialBridgeUrl;
   final bool loadPreferences;
+  final DateTime Function()? now;
 
   @override
   State<WorkspaceScreen> createState() => _WorkspaceScreenState();
@@ -294,6 +300,8 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
   final TextEditingController _fileSearchController = TextEditingController();
   final TextEditingController _projectPathController = TextEditingController();
   final TextEditingController _projectNameController = TextEditingController();
+
+  DateTime _now() => widget.now?.call() ?? DateTime.now();
 
   List<ProjectSummary> _projects = const [];
   List<ProjectCandidate> _projectCandidates = const [];
@@ -333,6 +341,10 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
   bool _sessionsExhausted = false;
   Timer? _realtimeContextStatusTimer;
   bool _realtimeContextStatusArmed = false;
+  String? _liveSessionRefreshKey;
+  DateTime? _liveSessionRefreshUntil;
+  String? _lastSessionViewRefreshKey;
+  DateTime? _lastSessionViewRefreshAt;
   final Map<String, Future<void>> _sessionViewLoadFutures = {};
   final Map<String, Future<void>> _sessionContextLoadFutures = {};
   final Map<String, UsageMetrics> _retainedAssistantUsageBySession = {};
@@ -944,11 +956,14 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
       return;
     }
 
-    if (event.type.startsWith('message.') &&
+    final shouldTrackSelectedMessage =
+        event.type.startsWith('message.') &&
         _selectedSessionId != null &&
-        (event.sessionId == null || event.sessionId == _selectedSessionId)) {
+        (event.sessionId == null || event.sessionId == _selectedSessionId);
+
+    if (shouldTrackSelectedMessage) {
+      _armLiveSessionRefresh();
       _realtimeContextStatusArmed = true;
-      _syncRealtimeContextStatusRefresh();
     }
 
     _pendingEventRefresh = _pendingEventRefresh.merge(refresh);
@@ -956,6 +971,9 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
     _eventRefreshTimer = Timer(const Duration(milliseconds: 220), () {
       unawaited(_flushQueuedEventRefresh());
     });
+    if (shouldTrackSelectedMessage) {
+      _syncRealtimeContextStatusRefresh();
+    }
   }
 
   Future<void> _flushQueuedEventRefresh() async {
@@ -1026,6 +1044,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
       await _reloadFromBridge(
         selectFirst: _selectedSessionId == null,
         restartStream: true,
+        refreshSelectedSession: _selectedSessionId != null,
       );
     });
   }
@@ -1121,9 +1140,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
 
     Future<void> loadFuture() async {
       try {
-        final loadResult = await _fetchProjectSessions(
-          requestedProjectId,
-        );
+        final loadResult = await _fetchProjectSessions(requestedProjectId);
         final sessions = loadResult.sessions;
         final visibleSessions = _visibleRootSessionsFrom(
           sessions,
@@ -1323,6 +1340,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
     bool showLoadingIndicator = true,
     bool loadContextStatus = true,
     bool reportErrors = true,
+    int? messageLimit = _sessionMessageTailLimit,
   }) async {
     final requestedProjectId = _selectedProjectId;
     if (requestedProjectId == null) {
@@ -1383,9 +1401,11 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
 
     Future<void> loadFuture() async {
       try {
+        _rememberSessionViewRefreshAttempt(requestedProjectId, sessionId);
         final view = await _client.fetchSessionView(
           sessionId,
           projectId: requestedProjectId,
+          messageLimit: messageLimit,
         );
         if (!mounted) {
           return;
@@ -1473,6 +1493,21 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
       usage!,
       _retainedAssistantUsageBySession[requestKey],
     );
+  }
+
+  void _rememberSessionViewRefreshAttempt(String? projectId, String sessionId) {
+    _lastSessionViewRefreshKey = _sessionRequestKey(projectId, sessionId);
+    _lastSessionViewRefreshAt = _now();
+  }
+
+  bool _shouldRefreshLiveSessionView(String sessionId) {
+    final requestKey = _sessionRequestKey(_selectedProjectId, sessionId);
+    final lastRefreshAt = _lastSessionViewRefreshAt;
+    if (_lastSessionViewRefreshKey != requestKey || lastRefreshAt == null) {
+      return true;
+    }
+
+    return _now().difference(lastRefreshAt) >= _liveSessionViewRefreshInterval;
   }
 
   UsageMetrics? _stickyLatestAssistantUsage(
@@ -1604,11 +1639,12 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
       _inFlightPromptCount += 1;
       _error = null;
       if (_selectedSessionView != null) {
+        final currentTime = _now();
         final optimisticMessage = ConversationMessage(
-          id: 'local-user-${DateTime.now().microsecondsSinceEpoch}',
+          id: 'local-user-${currentTime.microsecondsSinceEpoch}',
           role: 'user',
-          createdAt: DateTime.now().toIso8601String(),
-          completedAt: DateTime.now().toIso8601String(),
+          createdAt: currentTime.toIso8601String(),
+          completedAt: currentTime.toIso8601String(),
           error: null,
           usage: null,
           parts: [
@@ -1655,6 +1691,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
       setState(() {
         _connectionLabel = 'Prompt sent';
       });
+      _armLiveSessionRefresh();
       _realtimeContextStatusArmed = true;
       _queueSelectedSessionRefresh();
     } catch (error) {
@@ -1698,6 +1735,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
       setState(() {
         _connectionLabel = _txt('已开始压缩上下文', 'Context compaction started');
       });
+      _armLiveSessionRefresh();
       _realtimeContextStatusArmed = true;
       _queueSelectedSessionRefresh();
     } catch (error) {
@@ -1727,26 +1765,59 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
     _syncRealtimeContextStatusRefresh();
   }
 
+  void _armLiveSessionRefresh() {
+    final sessionId = _selectedSessionId;
+    if (sessionId == null) {
+      return;
+    }
+
+    _liveSessionRefreshKey = _sessionRequestKey(_selectedProjectId, sessionId);
+    _liveSessionRefreshUntil = _now().add(_liveSessionRefreshWindow);
+  }
+
+  bool _hasLiveSessionRefreshWindow(String sessionKey) {
+    final refreshUntil = _liveSessionRefreshUntil;
+    if (_liveSessionRefreshKey != sessionKey || refreshUntil == null) {
+      return false;
+    }
+
+    if (_now().isBefore(refreshUntil)) {
+      return true;
+    }
+
+    _liveSessionRefreshKey = null;
+    _liveSessionRefreshUntil = null;
+    return false;
+  }
+
   void _syncRealtimeContextStatusRefresh() {
+    final selectedSessionId = _selectedSessionId;
+    final selectedSessionKey = selectedSessionId == null
+        ? null
+        : _sessionRequestKey(_selectedProjectId, selectedSessionId);
+    final hasLiveSessionRefreshWindow =
+        selectedSessionKey != null &&
+        _hasLiveSessionRefreshWindow(selectedSessionKey);
     final contextStatus = _selectedSessionContextStatus;
     final shouldFollowLiveTurn =
         _inFlightPromptCount > 0 ||
         _compactingSession ||
         _pendingEventRefresh.sessionView ||
         _pendingEventRefresh.contextStatus ||
+        hasLiveSessionRefreshWindow ||
         _latestPendingAssistant(_selectedSessionView?.messages ?? const []) !=
             null ||
         (contextStatus?.compacting ?? false) ||
         _hasBusySessionStatus(contextStatus);
     final shouldPoll =
         _realtimeContextStatusArmed &&
-        _selectedSessionId != null &&
+        selectedSessionId != null &&
         shouldFollowLiveTurn;
 
     if (!shouldPoll) {
       _realtimeContextStatusTimer?.cancel();
       _realtimeContextStatusTimer = null;
-      if (_selectedSessionId == null || !shouldFollowLiveTurn) {
+      if (selectedSessionId == null || !shouldFollowLiveTurn) {
         _realtimeContextStatusArmed = false;
       }
       return;
@@ -1757,16 +1828,26 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
     }
 
     _realtimeContextStatusTimer = Timer(
-      const Duration(milliseconds: 450),
+      _liveContextStatusRefreshInterval,
       () async {
         _realtimeContextStatusTimer = null;
         final sessionId = _selectedSessionId;
         if (sessionId != null && mounted) {
-          await _loadSessionContextStatus(
-            sessionId,
-            showLoadingIndicator: false,
-            reportErrors: false,
-          );
+          if (_shouldRefreshLiveSessionView(sessionId)) {
+            await _loadSessionView(
+              sessionId,
+              preserveSelection: true,
+              showLoadingIndicator: false,
+              loadContextStatus: true,
+              reportErrors: false,
+            );
+          } else {
+            await _loadSessionContextStatus(
+              sessionId,
+              showLoadingIndicator: false,
+              reportErrors: false,
+            );
+          }
         }
         if (mounted) {
           _syncRealtimeContextStatusRefresh();
@@ -2026,10 +2107,8 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
   String? get _sessionQueryDirectory =>
       _sessionQueryDirectoryForProject(_selectedProjectSummary);
 
-  List<SessionSummary> get _visibleRootSessions => _visibleRootSessionsFrom(
-    _sessions,
-    directory: _sessionQueryDirectory,
-  );
+  List<SessionSummary> get _visibleRootSessions =>
+      _visibleRootSessionsFrom(_sessions, directory: _sessionQueryDirectory);
 
   List<SessionSummary> get _paginatedVisibleRootSessions {
     return _visibleRootSessions
@@ -2117,29 +2196,31 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
   }) {
     final normalizedDirectory = directory?.trim();
 
-    return sessions.where((session) {
-      final parentId = session.parentId?.trim();
-      if (parentId != null && parentId.isNotEmpty) {
-        return false;
-      }
+    return sessions
+        .where((session) {
+          final parentId = session.parentId?.trim();
+          if (parentId != null && parentId.isNotEmpty) {
+            return false;
+          }
 
-      final archivedAt = session.archivedAt?.trim();
-      if (archivedAt != null && archivedAt.isNotEmpty) {
-        return false;
-      }
+          final archivedAt = session.archivedAt?.trim();
+          if (archivedAt != null && archivedAt.isNotEmpty) {
+            return false;
+          }
 
-      final sessionDirectory = session.directory?.trim();
-      if (normalizedDirectory != null && normalizedDirectory.isNotEmpty) {
-        if (sessionDirectory == null || sessionDirectory.isEmpty) {
-          return false;
-        }
-        if (!_pathFallsWithinRoot(sessionDirectory, normalizedDirectory)) {
-          return false;
-        }
-      }
+          final sessionDirectory = session.directory?.trim();
+          if (normalizedDirectory != null && normalizedDirectory.isNotEmpty) {
+            if (sessionDirectory == null || sessionDirectory.isEmpty) {
+              return false;
+            }
+            if (!_pathFallsWithinRoot(sessionDirectory, normalizedDirectory)) {
+              return false;
+            }
+          }
 
-      return true;
-    }).toList(growable: false);
+          return true;
+        })
+        .toList(growable: false);
   }
 
   Future<_SessionLoadResult> _fetchProjectSessions(String projectId) async {
@@ -2560,7 +2641,9 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
                                 Expanded(
                                   child: Text(
                                     _selectedProjectSummary!.name,
-                                    style: Theme.of(context).textTheme.titleSmall
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleSmall
                                         ?.copyWith(fontWeight: FontWeight.w700),
                                   ),
                                 ),
@@ -2647,7 +2730,9 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
                                   contentPadding: EdgeInsets.zero,
                                   title: Text(session.title),
                                   subtitle: Padding(
-                                    padding: const EdgeInsets.only(top: _spaceXs),
+                                    padding: const EdgeInsets.only(
+                                      top: _spaceXs,
+                                    ),
                                     child: Text(
                                       _sessionPreviewLabel(session),
                                       maxLines: 1,
@@ -3641,7 +3726,8 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
                                             CrossAxisAlignment.start,
                                         children: [
                                           Text(
-                                            paginatedSessions[sessionIndex].title,
+                                            paginatedSessions[sessionIndex]
+                                                .title,
                                             maxLines: 1,
                                             overflow: TextOverflow.ellipsis,
                                             style: Theme.of(context)
@@ -4683,7 +4769,8 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
               _spaceLg,
             ),
             itemCount:
-                paginatedSessions.length + (_hasMoreVisibleRootSessions ? 1 : 0),
+                paginatedSessions.length +
+                (_hasMoreVisibleRootSessions ? 1 : 0),
             separatorBuilder: (_, _) => const SizedBox(height: _spaceSm),
             itemBuilder: (context, index) {
               if (index == paginatedSessions.length) {
@@ -8604,7 +8691,7 @@ class _RuntimeRow extends StatelessWidget {
 }
 
 class _ComposerBar extends StatelessWidget {
-const _ComposerBar({
+  const _ComposerBar({
     required this.controller,
     this.focusNode,
     required this.locked,
