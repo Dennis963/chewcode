@@ -29,7 +29,7 @@ android {
 
     buildTypes {
         release {
-            // The public v1.1.0 artifact is a sideload APK. Replace this
+            // The public v1.1.2 artifact is a sideload APK. Replace this
             // with project-owned release signing before store distribution.
             signingConfig = signingConfigs.getByName("debug")
         }

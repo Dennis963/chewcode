@@ -83,6 +83,25 @@ For mobile acceptance, do not say "latest APK is ready" unless:
 1. APK was rebuilt after the latest relevant code changes
 2. install succeeded or the exact blocking reason is known
 3. the user has the exact URL/token/runtime values needed to test
+4. every APK packaging/release rebuild increments the app version first
+5. version bumps must stay in the `v1.1.x` line and change only the final
+   patch segment, unless the user explicitly approves a different version line
+6. do not add extra version suffixes, build-name decorations, or unrelated
+   version changes
+
+### 6.1 Git and release attribution standard
+
+Do not add AI-agent attribution to commits, release notes, tags, or published
+artifacts unless the user explicitly asks for it.
+
+In particular:
+
+- do not add `Co-authored-by: Sisyphus <clio-agent@sisyphuslabs.ai>`
+- do not add `Ultraworked with ...` footers
+- use the user's configured git identity unless the user specifies another
+  author/committer identity
+- external publishing actions require explicit user confirmation immediately
+  before upload/push/release, even if earlier context sounded permissive
 
 ### 7. State/sync debugging discipline
 
@@ -170,6 +189,9 @@ Use this checklist every time:
 - [ ] If runtime matters, did I verify the actual runtime behavior?
 - [ ] If I say a service is running, did I prove it with a port/health check?
 - [ ] If this is a mobile handoff, is the APK definitely rebuilt after the latest code changes?
+- [ ] If this is an APK package/release, did I bump only the final `v1.1.x` patch version first?
+- [ ] Did I avoid AI co-author/trailer/footer attribution unless the user explicitly requested it?
+- [ ] Before any external push/upload/release, did I get immediate explicit confirmation?
 - [ ] Am I about to repeat old summary content instead of addressing the current issue?
 - [ ] For status/sync/token bugs, have I identified a single source of truth per signal?
 - [ ] Have I checked whether bridge/model mapping is dropping the field I need?
