@@ -3144,6 +3144,78 @@ void main() {
     expect(find.text('问题'), findsNothing);
   });
 
+  testWidgets('mobile drawer shows project attention from another session', (
+    tester,
+  ) async {
+    _setSurfaceSize(tester, const Size(430, 932));
+
+    const selectedSession = SessionSummary(
+      id: 's1',
+      title: 'Selected session',
+      directory: '/repo/robot',
+      createdAt: null,
+      updatedAt: null,
+      status: 'running',
+      parentId: null,
+    );
+    const waitingSession = SessionSummary(
+      id: 's2',
+      title: 'Waiting session',
+      directory: '/repo/robot',
+      createdAt: null,
+      updatedAt: null,
+      status: 'running',
+      parentId: null,
+    );
+
+    final client = _FakeBridgeClient(
+      sessions: const [selectedSession, waitingSession],
+      sessionView: _buildSessionView(selectedSession, 'Selected ready'),
+      contextStatus: _buildContextStatus(selectedSession.id, '/repo/robot'),
+      attention: const AttentionState(
+        questions: [
+          PendingQuestion(
+            id: 'q-other-session',
+            sessionId: 's2',
+            header: 'P0 direction',
+            question: 'Which P0 work should continue?',
+            options: [QuestionOption(label: '全部非8821 P0', description: null)],
+            multiple: false,
+          ),
+        ],
+        permissions: [],
+      ),
+    );
+    addTearDown(client.disposeEvents);
+
+    await tester.pumpWidget(
+      ChewCodeApp(
+        home: WorkspaceScreen(
+          client: client,
+          initialBridgeUrl: 'http://test-bridge',
+          loadPreferences: false,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Selected ready'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('mobile-inline-pending-question-card')),
+      findsOneWidget,
+    );
+    expect(find.text('P0 direction'), findsOneWidget);
+    expect(find.text('Which P0 work should continue?'), findsOneWidget);
+    expect(find.text('全部非8821 P0'), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.tune_rounded).first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('P0 direction'), findsWidgets);
+    expect(find.text('Which P0 work should continue?'), findsWidgets);
+    expect(find.text('全部非8821 P0'), findsWidgets);
+  });
+
   testWidgets(
     'deduplicates selected-session refresh while a load is in flight',
     (tester) async {

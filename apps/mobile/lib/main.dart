@@ -13,7 +13,7 @@ const _defaultBridgeUrl = String.fromEnvironment(
   'BRIDGE_URL',
   defaultValue: 'http://127.0.0.1:8080',
 );
-const _buildVersionLabel = '1.1.0';
+const _buildVersionLabel = '1.1.2';
 const MethodChannel _downloadsChannel = MethodChannel(
   'dev.chewcode.mobile/downloads',
 );
@@ -2121,14 +2121,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
       _paginatedVisibleRootSessions.length < _visibleRootSessions.length;
 
   int get _selectedAttentionCount =>
-      _filteredQuestionsForSession(
-        _attention.questions,
-        _selectedSessionId,
-      ).length +
-      _filteredPermissionsForSession(
-        _attention.permissions,
-        _selectedSessionId,
-      ).length;
+      _attention.questions.length + _attention.permissions.length;
 
   String? get _mobileFileBadge {
     if (_selectedFilePreview != null) {
@@ -3533,11 +3526,36 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
       _selectedSessionContextStatus,
       _selectedSessionId,
     );
+    final inlineQuestion = _attention.questions.isEmpty
+        ? null
+        : _attention.questions.first;
 
-    return _MessagesPane(
-      messages: presentation.visibleMessages,
-      storageId: '${_selectedSessionId ?? 'session'}-messages',
-      compactShell: true,
+    return Column(
+      children: [
+        if (inlineQuestion != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              _spaceLg,
+              _spaceLg,
+              _spaceLg,
+              _spaceSm,
+            ),
+            child: _InlinePendingQuestionCard(
+              question: inlineQuestion,
+              totalQuestions: _attention.questions.length,
+              respondingAttention: _respondingAttention,
+              onQuestionAnswer: _replyQuestion,
+              onQuestionReject: _rejectQuestion,
+            ),
+          ),
+        Expanded(
+          child: _MessagesPane(
+            messages: presentation.visibleMessages,
+            storageId: '${_selectedSessionId ?? 'session'}-messages',
+            compactShell: true,
+          ),
+        ),
+      ],
     );
   }
 
@@ -4123,7 +4141,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
         if (hasAttention) ...[
           _AttentionPanel(
             attention: _attention,
-            sessionId: _selectedSessionId,
+            sessionId: null,
             respondingAttention: _respondingAttention,
             onQuestionAnswer: _replyQuestion,
             onQuestionReject: _rejectQuestion,
@@ -4208,7 +4226,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
           loadingContextStatus: _loadingSessionContextStatus,
           questions: _attention.questions,
           permissions: _attention.permissions,
-          sessionId: _selectedSessionId,
+          sessionId: null,
         ),
       ],
     );
@@ -4959,7 +4977,7 @@ class _WorkspaceScreenState extends State<WorkspaceScreen> {
                             loadingContextStatus: _loadingSessionContextStatus,
                             questions: _attention.questions,
                             permissions: _attention.permissions,
-                            sessionId: _selectedSessionId,
+                            sessionId: null,
                           ),
                         ),
                         Expanded(
@@ -5576,12 +5594,12 @@ class _SidebarPane extends StatelessWidget {
             loadingContextStatus: loadingContextStatus,
             questions: attention.questions,
             permissions: attention.permissions,
-            sessionId: sessionId,
+            sessionId: null,
           ),
           const SizedBox(height: _spaceLg),
           _AttentionPanel(
             attention: attention,
-            sessionId: sessionId,
+            sessionId: null,
             respondingAttention: respondingAttention,
             onQuestionAnswer: onQuestionAnswer,
             onQuestionReject: onQuestionReject,
@@ -8091,7 +8109,7 @@ class _AttentionPanel extends StatelessWidget {
             _SubsectionCard(
               title: 'Questions',
               subtitle:
-                  'Resolve multiple-choice prompts waiting on this session.',
+                  'Resolve multiple-choice prompts waiting on this project.',
               tone: Theme.of(context).colorScheme.tertiary,
               child: Column(
                 children: [
@@ -8176,7 +8194,7 @@ class _AttentionPanel extends StatelessWidget {
             _SubsectionCard(
               title: 'Permissions',
               subtitle:
-                  'Approve or reject tool access requests for this session.',
+                  'Approve or reject tool access requests for this project.',
               tone: Theme.of(context).colorScheme.error,
               child: Column(
                 children: [
@@ -8275,6 +8293,100 @@ class _AttentionPanel extends StatelessWidget {
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+class _InlinePendingQuestionCard extends StatelessWidget {
+  const _InlinePendingQuestionCard({
+    required this.question,
+    required this.totalQuestions,
+    required this.respondingAttention,
+    required this.onQuestionAnswer,
+    required this.onQuestionReject,
+  });
+
+  final PendingQuestion question;
+  final int totalQuestions;
+  final bool respondingAttention;
+  final Future<void> Function(PendingQuestion question, String answer)
+  onQuestionAnswer;
+  final Future<void> Function(PendingQuestion question) onQuestionReject;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final extraQuestionCount = math.max(0, totalQuestions - 1);
+
+    return KeyedSubtree(
+      key: const ValueKey<String>('mobile-inline-pending-question-card'),
+      child: _PanelCard(
+        highlighted: true,
+        tone: scheme.tertiary,
+        padding: const EdgeInsets.all(_spaceMd),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Wrap(
+              spacing: _spaceSm,
+              runSpacing: _spaceXs,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                _StatusChip(
+                  label: _tr(context, '需要回答', 'Needs answer'),
+                  tone: scheme.tertiary,
+                ),
+                if (extraQuestionCount > 0)
+                  _StatusChip(
+                    label: _tr(
+                      context,
+                      '另有 $extraQuestionCount 个',
+                      '+$extraQuestionCount more',
+                    ),
+                    tone: scheme.outline,
+                  ),
+              ],
+            ),
+            const SizedBox(height: _spaceSm),
+            Text(
+              question.header,
+              style: Theme.of(
+                context,
+              ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: _spaceXs),
+            Text(
+              question.question,
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            if (question.options.isNotEmpty) ...[
+              const SizedBox(height: _spaceMd),
+              Wrap(
+                spacing: _spaceSm,
+                runSpacing: _spaceSm,
+                children: [
+                  for (final option in question.options)
+                    OutlinedButton(
+                      onPressed: respondingAttention
+                          ? null
+                          : () => onQuestionAnswer(question, option.label),
+                      child: Text(option.label),
+                    ),
+                ],
+              ),
+            ],
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: respondingAttention
+                    ? null
+                    : () => onQuestionReject(question),
+                child: Text(_tr(context, '拒绝', 'Reject')),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
